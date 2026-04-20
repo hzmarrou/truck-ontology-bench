@@ -6,6 +6,7 @@ from .evaluator import (
     generate_scorecard,
     normalize_text,
     score_all,
+    score_numeric,
     score_response,
     score_signals,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "load_scenarios",
     "normalize_text",
     "score_all",
+    "score_numeric",
     "score_response",
     "score_signals",
 ]

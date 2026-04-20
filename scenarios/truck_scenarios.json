@@ -149,7 +149,10 @@
     "action_policy": "recommend_only",
     "candidate_metrics": ["on_time_by_delivery_window", "on_time_by_scheduled_arrival"],
     "naked_agent_trap": "Uses scheduled_arrival instead of delivery_window_end.",
-    "ontology_signals": ["on-time", "delivery"]
+    "ontology_signals": ["on-time", "delivery"],
+    "gold_numeric_value": 100.0,
+    "gold_numeric_tolerance_pct": 1.0,
+    "gold_numeric_description": "Percentage of trips whose actual_arrival is on or before delivery_window_end. Computed from the seed JSONL."
   },
   {
     "scenario_id": "Q14",

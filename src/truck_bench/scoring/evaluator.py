@@ -40,9 +40,36 @@ class ScoreResult:
     ambiguity_detected: bool = False
     guardrail_respected: bool = False
     signals_correct: bool = False
+    numeric_correct: bool = False
     total_score: int = 0
     max_score: int = 0
     notes: str = ""
+
+
+_NUMBER_PATTERN = re.compile(r"-?\$?\d[\d,]*(?:\.\d+)?")
+
+
+def _extract_numbers(text: str) -> list[float]:
+    values: list[float] = []
+    for m in _NUMBER_PATTERN.finditer(text or ""):
+        token = m.group(0).replace(",", "").replace("$", "")
+        try:
+            values.append(float(token))
+        except ValueError:
+            continue
+    return values
+
+
+def score_numeric(answer: str, gold_value: float, tolerance_pct: float) -> bool:
+    """Return True if any number in ``answer`` is within ``tolerance_pct``% of ``gold_value``."""
+    numbers = _extract_numbers(answer)
+    if not numbers:
+        return False
+    if gold_value == 0:
+        threshold = abs(tolerance_pct)
+        return any(abs(n) <= threshold for n in numbers)
+    threshold = abs(gold_value) * (tolerance_pct / 100.0)
+    return any(abs(n - gold_value) <= threshold for n in numbers)
 
 
 def normalize_text(s: str) -> str:
@@ -114,6 +141,25 @@ def score_response(response: AgentResponse, golden: GoldenAnswer) -> ScoreResult
             result.total_score += 1
         else:
             notes.append(f"signals missing: {missing}")
+
+    # 2. Deterministic numeric gold — independent dimension. Passes if
+    # the agent's free-text answer contains a number within tolerance of
+    # the gold value. Guards against lexically-correct answers with
+    # wrong numbers.
+    if golden.gold_numeric_value is not None:
+        result.max_score += 1
+        if score_numeric(
+            response.answer,
+            golden.gold_numeric_value,
+            golden.gold_numeric_tolerance_pct,
+        ):
+            result.numeric_correct = True
+            result.total_score += 1
+        else:
+            notes.append(
+                f"numeric: expected ~{golden.gold_numeric_value} "
+                f"(±{golden.gold_numeric_tolerance_pct}%)"
+            )
 
     result.notes = "; ".join(notes) if notes else "no dimensions scored"
     return result

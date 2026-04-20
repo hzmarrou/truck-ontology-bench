@@ -11,6 +11,7 @@ from truck_bench.scoring import (
     score_response,
     score_signals,
 )
+from truck_bench.scoring.evaluator import score_numeric
 
 
 def test_normalize_text_folds_separators() -> None:
@@ -94,6 +95,36 @@ def test_signals_only_scenario_still_scores() -> None:
     r = score_response(response, golden)
     assert r.total_score == 1 and r.max_score == 1
     assert r.signals_correct is True
+
+
+def test_score_numeric_percentage_within_tolerance() -> None:
+    assert score_numeric("On-time delivery rate is 100%.", 100.0, 1.0) is True
+
+
+def test_score_numeric_percentage_outside_tolerance() -> None:
+    assert score_numeric("On-time delivery rate is 40%.", 100.0, 1.0) is False
+
+
+def test_score_numeric_no_numbers_in_answer() -> None:
+    assert score_numeric("The data is unavailable.", 100.0, 1.0) is False
+
+
+def test_numeric_gold_adds_independent_dimension() -> None:
+    golden = GoldenAnswer(
+        scenario_id="Q13",
+        gold_numeric_value=100.0,
+        gold_numeric_tolerance_pct=1.0,
+    )
+    right = AgentResponse(scenario_id="Q13", agent_type="o",
+                          answer="On-time delivery rate is 100%.")
+    wrong = AgentResponse(scenario_id="Q13", agent_type="n",
+                          answer="On-time delivery rate is 40%.")
+    r_right = score_response(right, golden)
+    r_wrong = score_response(wrong, golden)
+    assert r_right.numeric_correct is True
+    assert r_right.total_score == 1 and r_right.max_score == 1
+    assert r_wrong.numeric_correct is False
+    assert r_wrong.total_score == 0 and r_wrong.max_score == 1
 
 
 def test_scorecard_rendering() -> None:
