@@ -51,21 +51,33 @@ cells.append(md("""# NakedAgent vs OntologyAgent — truck logistics benchmark
 
 Side-by-side evaluation of two Fabric Data Agents on 18 long-haul trucking scenarios (sanity, multi-hop, graph, governed metrics, ambiguity, guardrails).
 
-## How it works
+## Architecture — two different query engines
+
+`scripts/05_setup_agents.py` wires the two agents so they each go through exactly one data surface:
+
+| Agent | Data source | Query engine | What it "sees" |
+|---|---|---|---|
+| `NakedAgent` | Lakehouse Delta tables | Spark SQL | 11 raw tables with `_id` FK columns |
+| `OntologyAgent` | Ontology (graph model) | GQL | 11 entity types + 19 typed relationships |
+
+The ontology's graph model is populated by `scripts/04_refresh_and_validate.py`, which materializes nodes and edges from the Lakehouse tables via the bindings + contextualizations. Both agents see the *same underlying data*; they just traverse it through different engines.
+
+## How the notebook works
 
 For each scenario the notebook:
 
 1. Sends the question to `NakedAgent` via `FabricOpenAI` and captures the final text reply
 2. Does the same for `OntologyAgent`
-3. Scores each answer with a token check — every `ontology_signals` token in the scenario must appear in the response (case + separator insensitive) for the answer to count as correct
+3. Scores each answer with a deterministic token check — every `ontology_signals` token in the scenario must appear in the response (case + separator insensitive) for the answer to count as correct
 4. Emits a side-by-side DataFrame and writes `Files/truck/_agent_comparison.json` to the attached lakehouse
 
-Scoring is deterministic: every run on the same agents produces the same scorecard.
+Scoring is reproducible: the same agents + scenarios produce the same scorecard every time.
 
 ## Prerequisites
 
 - **Default lakehouse must be attached** — left sidebar -> Lakehouses -> + Add -> star it.
 - `NakedAgent` and `OntologyAgent` already provisioned in this workspace (`scripts/05_setup_agents.py`).
+- **The graph model must be refreshed since the last lakehouse change.** `OntologyAgent` queries the graph, not the lakehouse directly — stale graph = stale answers. If you just loaded data, run `scripts/04_refresh_and_validate.py` first or click **Refresh now** on the graph model in the Fabric UI.
 - The notebook is self-contained — if `Files/truck/agent-comparison-questions.json` is missing, an inline copy of the scenarios is used instead.
 """))
 
@@ -312,14 +324,23 @@ print(f"Ontology {ontology_summary['correctCount']}/{ontology_summary['totalQues
 
 cells.append(md("""## 10. What to look for
 
-OntologyAgent should clear NakedAgent on overall accuracy, with the biggest deltas on:
+Because `OntologyAgent` now speaks GQL against the graph and `NakedAgent` speaks SQL against Delta tables, they are two genuinely different query engines. Expect the deltas to reflect that:
 
-- **Multi-hop traversals** — Q04 (trip dispatch roll-up), Q10 (Atlanta↔Chicago trips across both route directions), Q11 (miles driven per driver)
-- **Governed metrics** — Q13 (on-time by delivery window vs scheduled), Q14 (MPG when fuel data isn't directly in the lakehouse), Q15 (maintenance cost per 10k miles by make)
-- **Negation** — Q12 (trucks with no maintenance)
-- **Ambiguity & guardrails** — Q16 (active trucks), Q17 (late loads), Q18 (dispatch action)
+**Where OntologyAgent should win**
 
-Sanity questions Q01–Q03 should be ties. If OntologyAgent loses any of those, investigate its prompt.
+- **Multi-hop traversals** — Q04 (trip dispatch roll-up), Q10 (Atlanta↔Chicago in both directions), Q11 (miles driven per driver). GQL expresses multi-hop edge traversal naturally; SQL has to chain joins and tends to drop a side.
+- **Negation / anti-joins** — Q12 (trucks with no maintenance). Graph `MATCH NOT` patterns are clearer than SQL `LEFT JOIN ... IS NULL`.
+- **Ambiguity & guardrails** — Q16 (active trucks), Q17 (late loads), Q18 (dispatch action). The ontology agent has richer semantic context to flag multiple valid definitions.
+
+**Where NakedAgent may win or tie**
+
+- **Sanity questions (Q01–Q03)** — single-table SQL aggregations are trivial. OntologyAgent should tie here; if it loses, the GQL group-by workaround in the instructions is worth checking.
+- **Heavy aggregation / math-y metrics** (Q13 on-time rate, Q15 maintenance per 10k miles). GQL aggregations are a documented weak spot in Fabric ontology — this is why the agent instructions include the "Support group by in GQL" nudge from the Fabric tutorial.
+
+**Operational reminders**
+
+- If `OntologyAgent` returns counts that don't match `NakedAgent`'s, first check whether the graph was refreshed since the last lakehouse write. The graph is not live-bound; `scripts/04_refresh_and_validate.py` or **Refresh now** in the UI materialises changes.
+- Both agents answer from the *same data*, so a gap that comes from knowing which table/column to use is a genuine ontology win; a gap that comes from the engine's query capability is a platform artifact, not a semantic win.
 """))
 
 
