@@ -13,13 +13,22 @@ curated scenario benchmark.
   DriverHOSLog) parsed into a Fabric ontology
 - 11 Lakehouse Delta tables populated from ~960 rows of seed JSONL data
 - 19 automatically-derived relationships (based on FK annotations in the
-  Markdown), plus 7 GQL competency queries
-- Two provisioned Fabric Data Agents ready for side-by-side evaluation
+  Markdown), plus 11 GQL competency queries
+- Two provisioned Fabric Data Agents:
+  - **`NakedAgent`** — wired to the Lakehouse tables only (Spark SQL
+    engine; no ontology hints)
+  - **`OntologyAgent`** — wired to the ontology **only** (GQL engine;
+    the ontology runtime resolves the graph against the same Lakehouse
+    through the bindings / contextualizations, but the agent has no
+    direct SQL access)
 - An 18-scenario benchmark covering sanity, multi-hop traversal,
   graph reasoning, governed metrics (on-time delivery, fleet MPG,
   maintenance cost per 10k miles), ambiguity, and action-guardrail cases
-- A deterministic scorecard (Markdown + JSON) based on a normalized
-  token match against each scenario's `ontology_signals`
+- A multi-dimensional scorecard (Markdown + JSON) combining critic
+  verdict, normalized signal-token coverage, and a deterministic
+  numeric-gold check. The scorecard embeds the exact scenarios payload
+  (with sha256) it was produced against, so re-reviewing the result is
+  reproducible.
 
 ## Prerequisites
 
@@ -27,9 +36,24 @@ curated scenario benchmark.
 - A Microsoft Fabric capacity (F2+ or P1+) with the
   [Fabric Data Agent tenant settings](https://learn.microsoft.com/en-us/fabric/data-science/data-agent-tenant-settings)
   enabled
-- An Entra application (service principal) that is:
-  - granted `Tenant.ReadWrite.All` with admin consent, and
-  - added to the target Fabric workspace as **Admin**
+
+### Service-principal permissions (least privilege)
+
+The SP is used only by the numbered scripts (`01`..`05`). The
+user-context notebook runs as a user, so the SP does NOT need any
+OpenAI / Assistants API permissions.
+
+| Resource | Level needed | Why |
+|---|---|---|
+| Target Fabric workspace | **Admin** | Create/update ontologies, graph models, data agents; run Livy Spark sessions against the lakehouse |
+| Target Lakehouse (in that workspace) | inherits from workspace Admin | `scripts/03_setup.py` creates tables + bindings |
+| Entra app Graph scopes | *none* | The scripts talk only to the Fabric API (`api.fabric.microsoft.com`); no MS Graph calls |
+| Tenant-level app roles | *none required* | `Tenant.ReadWrite.All` is not used. Fabric scopes come from the workspace Admin assignment, not from a tenant-wide app role |
+
+Fabric workspace role mappings are documented in
+[Microsoft's workspace-role reference](https://learn.microsoft.com/en-us/fabric/fundamentals/roles-workspaces).
+Keep the SP scoped to the benchmark workspace — creating a fresh
+workspace per evaluation keeps the blast radius minimal.
 
 ## Setup
 
@@ -108,7 +132,7 @@ truck-ontology-bench/
 ├── scenarios/
 │   └── truck_scenarios.json       18 benchmark scenarios
 ├── gql-queries/
-│   └── cq01..07.gql               Competency queries
+│   └── cq01..11.gql               Competency queries
 ├── scripts/                       Numbered pipeline entry points
 ├── notebooks/
 │   └── compare_agents_fabric.ipynb  Fabric notebook for agent comparison
