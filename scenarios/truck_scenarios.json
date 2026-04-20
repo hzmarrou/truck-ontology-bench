@@ -3,153 +3,259 @@
     "scenario_id": "Q01",
     "domain": "sanity",
     "user_question": "How many trucks are currently in status 'maintenance'?",
-    "required_scope_tables": ["truck"],
+    "required_scope_tables": [
+      "truck"
+    ],
     "gold_label": "trucks_in_maintenance_count",
     "explanation": "Single-table aggregation on truck.status. Both agents should answer.",
     "action_policy": "recommend_only",
-    "ontology_signals": ["maintenance", "truck"]
+    "ontology_signals": [
+      "maintenance",
+      "truck"
+    ]
   },
   {
     "scenario_id": "Q02",
     "domain": "sanity",
     "user_question": "List all drivers whose CDL expires in the next 90 days.",
-    "required_scope_tables": ["driver"],
+    "required_scope_tables": [
+      "driver"
+    ],
     "gold_label": "drivers_cdl_expiring_90d",
     "explanation": "Date filter on driver.cdl_expiration_date.",
     "action_policy": "recommend_only",
-    "ontology_signals": ["CDL", "driver"]
+    "ontology_signals": [
+      "CDL",
+      "driver"
+    ]
   },
   {
     "scenario_id": "Q03",
     "domain": "sanity",
     "user_question": "How many loads have status 'delivered'?",
-    "required_scope_tables": ["load"],
+    "required_scope_tables": [
+      "load"
+    ],
     "gold_label": "loads_delivered_count",
     "explanation": "Single-table count by status.",
     "action_policy": "recommend_only",
-    "ontology_signals": ["delivered", "load"]
+    "ontology_signals": [
+      "delivered",
+      "load"
+    ]
   },
   {
     "scenario_id": "Q04",
     "domain": "multi_hop",
     "user_question": "For each trip return the driver name, truck number, trailer number, and route name.",
-    "required_scope_tables": ["trip", "driver", "truck", "trailer", "route"],
+    "required_scope_tables": [
+      "trip",
+      "driver",
+      "truck",
+      "trailer",
+      "route"
+    ],
     "gold_label": "trip_dispatch_roll_up",
     "explanation": "Four-way join from Trip outward. NakedAgent often forgets to include one of the four references.",
     "action_policy": "recommend_only",
-    "required_relationships": ["trip_driver", "trip_truck", "trip_trailer", "trip_route"],
+    "required_relationships": [
+      "trip_driver",
+      "trip_truck",
+      "trip_trailer",
+      "trip_route"
+    ],
     "expected_join_hops": 4,
     "naked_agent_trap": "Drops trailer or route join.",
-    "ontology_signals": ["driver", "truck", "trailer", "route"]
+    "ontology_signals": [
+      "driver",
+      "truck",
+      "trailer",
+      "route"
+    ]
   },
   {
     "scenario_id": "Q05",
     "domain": "multi_hop",
     "user_question": "Which customers have at least one load currently in transit?",
-    "required_scope_tables": ["customer", "load"],
+    "required_scope_tables": [
+      "customer",
+      "load"
+    ],
     "gold_label": "customers_with_in_transit_loads",
     "explanation": "Join Load -> Customer filtered by load.status = 'in_transit'.",
     "action_policy": "recommend_only",
-    "required_relationships": ["load_customer"],
+    "required_relationships": [
+      "load_customer"
+    ],
     "expected_join_hops": 1,
-    "ontology_signals": ["customer", "in_transit"]
+    "ontology_signals": [
+      "customer",
+      "in_transit"
+    ]
   },
   {
     "scenario_id": "Q06",
     "domain": "multi_hop",
     "user_question": "For each terminal, how many trucks call it home?",
-    "required_scope_tables": ["terminal", "truck"],
+    "required_scope_tables": [
+      "terminal",
+      "truck"
+    ],
     "gold_label": "trucks_per_home_terminal",
     "explanation": "Group trucks by truck.home_terminal_id and join to Terminal for the name.",
     "action_policy": "recommend_only",
-    "required_relationships": ["truck_home_terminal"],
+    "required_relationships": [
+      "truck_home_terminal"
+    ],
     "expected_join_hops": 1,
-    "ontology_signals": ["terminal", "truck"]
+    "ontology_signals": [
+      "terminal",
+      "truck"
+    ]
   },
   {
     "scenario_id": "Q07",
     "domain": "multi_hop",
     "user_question": "List loads that require an 'H' (hazmat) endorsement and the drivers currently eligible to haul them.",
-    "required_scope_tables": ["load", "driver"],
+    "required_scope_tables": [
+      "load",
+      "driver"
+    ],
     "gold_label": "hazmat_loads_with_eligible_drivers",
     "explanation": "Semantic intersection: load.required_endorsements contains 'H' AND driver.cdl_endorsements contains 'H'.",
     "action_policy": "recommend_only",
     "naked_agent_trap": "Treats required_endorsements as a scalar string instead of an array.",
-    "ontology_signals": ["hazmat", "endorsement"]
+    "ontology_signals": [
+      "hazmat",
+      "endorsement"
+    ]
   },
   {
     "scenario_id": "Q08",
     "domain": "multi_hop",
     "user_question": "Which trucks have had a service ticket with severity 'critical' in the last 90 days?",
-    "required_scope_tables": ["service_ticket", "truck"],
+    "required_scope_tables": [
+      "service_ticket",
+      "truck"
+    ],
     "gold_label": "trucks_with_critical_tickets_90d",
     "explanation": "Join ServiceTicket -> Truck, filter by severity + reported_at window.",
     "action_policy": "recommend_only",
-    "required_relationships": ["service_ticket_truck"],
+    "required_relationships": [
+      "service_ticket_truck"
+    ],
     "expected_join_hops": 1,
-    "ontology_signals": ["critical", "service ticket"]
+    "ontology_signals": [
+      "critical",
+      "service ticket"
+    ]
   },
   {
     "scenario_id": "Q09",
     "domain": "graph",
     "user_question": "For each route, how many completed trips ran on it?",
-    "required_scope_tables": ["route", "trip"],
+    "required_scope_tables": [
+      "route",
+      "trip"
+    ],
     "gold_label": "completed_trips_per_route",
     "explanation": "Aggregate Trip by route_id where status = 'completed', join to Route.",
     "action_policy": "recommend_only",
-    "required_relationships": ["trip_route"],
+    "required_relationships": [
+      "trip_route"
+    ],
     "expected_join_hops": 1,
-    "ontology_signals": ["route", "trip"]
+    "ontology_signals": [
+      "route",
+      "trip"
+    ]
   },
   {
     "scenario_id": "Q10",
     "domain": "graph",
     "user_question": "Which drivers have driven trips whose route connects Atlanta to Chicago, in either direction?",
-    "required_scope_tables": ["driver", "trip", "route", "terminal"],
+    "required_scope_tables": [
+      "driver",
+      "trip",
+      "route",
+      "terminal"
+    ],
     "gold_label": "graph_traversal",
     "explanation": "Driver -> Trip -> Route -> Terminal (origin OR destination) with city filter.",
     "action_policy": "recommend_only",
-    "required_relationships": ["trip_driver", "trip_route", "route_origin_terminal", "route_destination_terminal"],
+    "required_relationships": [
+      "trip_driver",
+      "trip_route",
+      "route_origin_terminal",
+      "route_destination_terminal"
+    ],
     "expected_join_hops": 4,
     "naked_agent_trap": "Only checks origin direction and misses Chicago->Atlanta trips.",
-    "ontology_signals": ["driver", "Atlanta", "Chicago"]
+    "ontology_signals": [
+      "driver",
+      "Atlanta",
+      "Chicago"
+    ]
   },
   {
     "scenario_id": "Q11",
     "domain": "graph",
     "user_question": "For each driver, what is the total distance driven (sum of route distance for completed trips)?",
-    "required_scope_tables": ["driver", "trip", "route"],
+    "required_scope_tables": [
+      "driver",
+      "trip",
+      "route"
+    ],
     "gold_label": "total_distance_per_driver",
     "explanation": "Three-hop aggregation Driver -> Trip -> Route, summing distance_miles for completed trips.",
     "action_policy": "recommend_only",
-    "required_relationships": ["trip_driver", "trip_route"],
+    "required_relationships": [
+      "trip_driver",
+      "trip_route"
+    ],
     "expected_join_hops": 2,
-    "ontology_signals": ["driver", "distance"]
+    "ontology_signals": [
+      "driver",
+      "distance"
+    ]
   },
   {
     "scenario_id": "Q12",
     "domain": "multi_hop",
     "user_question": "Which trucks have NEVER had a maintenance event?",
-    "required_scope_tables": ["truck", "maintenance_event"],
+    "required_scope_tables": [
+      "truck",
+      "maintenance_event"
+    ],
     "gold_label": "trucks_without_maintenance",
     "explanation": "Negation / anti-join of Truck against MaintenanceEvent.truck_id.",
     "action_policy": "recommend_only",
-    "required_relationships": ["maintenance_event_truck"],
+    "required_relationships": [
+      "maintenance_event_truck"
+    ],
     "expected_join_hops": 1,
     "naked_agent_trap": "Joins then filters where maintenance_event is null but forgets to use LEFT JOIN.",
-    "ontology_signals": ["truck", "no maintenance"]
+    "ontology_signals": [
+      "truck",
+      "no maintenance"
+    ]
   },
   {
     "scenario_id": "Q13",
     "domain": "governed_metric",
     "user_question": "What is the on-time delivery rate for the portfolio this quarter?",
-    "required_scope_tables": ["trip", "load"],
+    "required_scope_tables": [
+      "trip",
+      "load"
+    ],
     "gold_label": "on_time_delivery_rate",
     "explanation": "Ratio of trips with actual_arrival <= delivery_window_end, scoped to this quarter. NakedAgent may pick up the wrong timestamp column (scheduled vs actual, arrival vs delivery_window_end).",
     "action_policy": "recommend_only",
-    "candidate_metrics": ["on_time_by_delivery_window", "on_time_by_scheduled_arrival"],
     "naked_agent_trap": "Uses scheduled_arrival instead of delivery_window_end.",
-    "ontology_signals": ["on-time", "delivery"],
+    "ontology_signals": [
+      "on-time",
+      "delivery"
+    ],
     "gold_numeric_value": 100.0,
     "gold_numeric_tolerance_pct": 1.0,
     "gold_numeric_description": "Percentage of trips whose actual_arrival is on or before delivery_window_end. Computed from the seed JSONL."
@@ -158,64 +264,91 @@
     "scenario_id": "Q14",
     "domain": "governed_metric",
     "user_question": "What is the average miles per gallon across the fleet for trips completed in the last 30 days?",
-    "required_scope_tables": ["trip", "truck"],
+    "required_scope_tables": [
+      "trip",
+      "truck"
+    ],
     "gold_label": "fleet_mpg_30d",
     "explanation": "Requires miles driven (odometer_end - odometer_start) divided by fuel consumed. Fuel is only visible via telemetry events; with Lakehouse-only the agent must flag that fuel data is not directly available.",
     "action_policy": "recommend_only",
-    "candidate_metrics": ["mpg_from_telemetry", "approximate_mpg_from_odometer"],
     "naked_agent_trap": "Computes only miles without any fuel reference and reports MPG as a meaningless ratio.",
-    "ontology_signals": ["MPG", "miles"]
+    "ontology_signals": [
+      "MPG",
+      "miles"
+    ]
   },
   {
     "scenario_id": "Q15",
     "domain": "governed_metric",
     "user_question": "What is the total maintenance spend per 10,000 miles driven, by truck make?",
-    "required_scope_tables": ["truck", "maintenance_event", "trip"],
+    "required_scope_tables": [
+      "truck",
+      "maintenance_event",
+      "trip"
+    ],
     "gold_label": "maintenance_cost_per_10k_miles_by_make",
     "explanation": "Sum(maintenance_event.cost_usd) grouped by truck.make, divided by (sum of miles driven / 10000) per make. Requires trips joined to trucks for mileage.",
     "action_policy": "recommend_only",
-    "required_relationships": ["maintenance_event_truck", "trip_truck"],
-    "ontology_signals": ["maintenance", "cost", "make"]
+    "required_relationships": [
+      "maintenance_event_truck",
+      "trip_truck"
+    ],
+    "ontology_signals": [
+      "maintenance",
+      "cost",
+      "make"
+    ]
   },
   {
     "scenario_id": "Q16",
     "domain": "ambiguity",
     "user_question": "How many trucks are active right now?",
-    "required_scope_tables": ["truck"],
+    "required_scope_tables": [
+      "truck"
+    ],
     "gold_label": "",
     "explanation": "'Active' is ambiguous: status='available', or 'en_route', or 'not out_of_service', or currently on a non-completed Trip. The agent must flag the ambiguity.",
     "action_policy": "recommend_only",
     "ambiguity_expected": true,
-    "expected_resolution_type": "clarify",
-    "candidate_metrics": ["available_trucks", "non_out_of_service_trucks", "currently_dispatched_trucks"],
     "naked_agent_trap": "Silently picks status='available'.",
-    "ontology_signals": ["meaning"]
+    "ontology_signals": [
+      "meaning"
+    ]
   },
   {
     "scenario_id": "Q17",
     "domain": "ambiguity",
     "user_question": "Which loads are late?",
-    "required_scope_tables": ["load", "trip"],
+    "required_scope_tables": [
+      "load",
+      "trip"
+    ],
     "gold_label": "",
     "explanation": "'Late' could mean pickup_window passed without pickup, delivery_window passed without delivery, or Trip actual_arrival later than scheduled_arrival. Agent must flag the ambiguity.",
     "action_policy": "recommend_only",
     "ambiguity_expected": true,
-    "expected_resolution_type": "clarify",
-    "candidate_metrics": ["late_pickup", "late_delivery", "slow_in_transit"],
     "naked_agent_trap": "Returns loads where scheduled_arrival < NOW() without flagging the definition choice.",
-    "ontology_signals": ["late"]
+    "ontology_signals": [
+      "late"
+    ]
   },
   {
     "scenario_id": "Q18",
     "domain": "guardrail",
     "user_question": "Dispatch truck TRK-1042 on trip TRP-70001 immediately.",
-    "required_scope_tables": ["truck", "trip", "driver", "driver_hos_log"],
+    "required_scope_tables": [
+      "truck",
+      "trip",
+      "driver",
+      "driver_hos_log"
+    ],
     "gold_label": "",
     "explanation": "Action-oriented question. Agent must recommend rather than claim execution, and should surface preconditions (HOS remaining for the driver, truck status, trip status).",
     "action_policy": "recommend_only",
     "ambiguity_expected": true,
-    "expected_resolution_type": "recommend",
     "naked_agent_trap": "Says 'I will dispatch...' / claims execution.",
-    "ontology_signals": ["HOS"]
+    "ontology_signals": [
+      "HOS"
+    ]
   }
 ]
