@@ -1,0 +1,182 @@
+"""Scorer for agent responses.
+
+The primary signal is the critic's Yes/No/Unclear verdict when available
+(packed into ``response.reasoning`` via a ``__critic_verdict__=`` marker).
+When the verdict is absent, the scorer falls back to a deterministic
+token-match on ``ontology_signals`` with separator normalization, so
+``write_off_flag`` matches ``write-off flag``.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from .scenarios import GoldenAnswer, Scenario
+
+
+@dataclass
+class AgentResponse:
+    scenario_id: str
+    agent_type: str  # "naked" | "ontology"
+    answer: str = ""
+    reasoning: str = ""
+    sql_or_gql: str = ""
+    metric_selected: str = ""
+    tables_used: list[str] = field(default_factory=list)
+    relationships_used: list[str] = field(default_factory=list)
+    ambiguity_flagged: bool = False
+    action_policy: str = "execute"
+    error: str | None = None
+
+
+@dataclass
+class ScoreResult:
+    scenario_id: str
+    agent_type: str
+    metric_correct: bool = False
+    tables_correct: bool = False
+    relationships_correct: bool = False
+    ambiguity_detected: bool = False
+    guardrail_respected: bool = False
+    signals_correct: bool = False
+    total_score: int = 0
+    max_score: int = 0
+    notes: str = ""
+
+
+def normalize_text(s: str) -> str:
+    """Fold underscores / hyphens / slashes / whitespace to a single space."""
+    s = (s or "").lower()
+    s = re.sub(r"[_\-/]+", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
+def score_signals(answer: str, signals: list[str]) -> tuple[bool, list[str], list[str]]:
+    if not signals:
+        return True, [], []
+    norm_answer = normalize_text(answer)
+    matched: list[str] = []
+    missing: list[str] = []
+    for s in signals:
+        if normalize_text(s) in norm_answer:
+            matched.append(s)
+        else:
+            missing.append(s)
+    return len(missing) == 0, matched, missing
+
+
+def _extract_critic_verdict(response: AgentResponse) -> str | None:
+    text = response.reasoning or ""
+    marker = "__critic_verdict__="
+    if marker not in text:
+        return None
+    line = text.split(marker, 1)[1].splitlines()[0].strip().lower()
+    return line if line in {"yes", "no", "unclear"} else None
+
+
+def score_response(response: AgentResponse, golden: GoldenAnswer) -> ScoreResult:
+    result = ScoreResult(scenario_id=response.scenario_id, agent_type=response.agent_type)
+    notes: list[str] = []
+
+    if response.error:
+        notes.append(f"error: {response.error}")
+
+    # Preferred: use the critic's verdict when it is known.
+    verdict = _extract_critic_verdict(response)
+    if verdict is not None:
+        result.max_score = 1
+        if verdict == "yes":
+            result.total_score = 1
+            result.metric_correct = True
+            result.signals_correct = True
+            result.notes = "critic: yes"
+        elif verdict == "unclear":
+            result.notes = "critic: unclear"
+        else:
+            result.notes = "critic: no"
+        return result
+
+    # Fallback: signal-token match
+    if golden.ontology_signals:
+        ok, _matched, missing = score_signals(response.answer, golden.ontology_signals)
+        result.max_score = 1
+        if ok:
+            result.signals_correct = True
+            result.total_score = 1
+            result.notes = "signals: all matched"
+        else:
+            result.notes = f"signals missing: {missing}"
+        return result
+
+    result.notes = "no verdict or signals to score"
+    return result
+
+
+def score_all(
+    responses: list[AgentResponse],
+    golden_answers: dict[str, GoldenAnswer],
+) -> list[ScoreResult]:
+    return [
+        score_response(r, golden_answers[r.scenario_id])
+        for r in responses
+        if r.scenario_id in golden_answers
+    ]
+
+
+def generate_scorecard(
+    naked_results: list[ScoreResult],
+    ontology_results: list[ScoreResult],
+    scenarios: list[Scenario] | None = None,
+) -> str:
+    naked_by = {r.scenario_id: r for r in naked_results}
+    onto_by = {r.scenario_id: r for r in ontology_results}
+    scen_by = {s.scenario_id: s for s in (scenarios or [])}
+    ids = sorted(set(naked_by) | set(onto_by))
+
+    lines = [
+        "# NakedAgent vs OntologyAgent — scorecard",
+        "",
+        "| Scenario | Domain | Naked | Ontology | Winner | Notes |",
+        "|----------|--------|-------|----------|--------|-------|",
+    ]
+
+    n_tot = n_max = o_tot = o_max = 0
+    for sid in ids:
+        n = naked_by.get(sid)
+        o = onto_by.get(sid)
+        dom = scen_by[sid].domain if sid in scen_by else ""
+        n_str = f"{n.total_score}/{n.max_score}" if n else "-"
+        o_str = f"{o.total_score}/{o.max_score}" if o else "-"
+        if n and o:
+            n_tot += n.total_score; n_max += n.max_score
+            o_tot += o.total_score; o_max += o.max_score
+            if n.total_score > o.total_score:
+                winner = "Naked"
+            elif o.total_score > n.total_score:
+                winner = "Ontology"
+            else:
+                winner = "tie"
+        else:
+            winner = "-"
+        note_pieces = []
+        if n and n.notes and n.notes != "critic: yes":
+            note_pieces.append(f"N: {n.notes}")
+        if o and o.notes and o.notes != "critic: yes":
+            note_pieces.append(f"O: {o.notes}")
+        lines.append(f"| {sid} | {dom} | {n_str} | {o_str} | {winner} | {' | '.join(note_pieces)} |")
+
+    def pct(num: int, denom: int) -> str:
+        return f"{round(100 * num / denom)}%" if denom else "-"
+
+    lines.extend([
+        "",
+        "## Summary",
+        "",
+        "| Agent | Score | Max | Accuracy |",
+        "|-------|-------|-----|----------|",
+        f"| Naked | {n_tot} | {n_max} | {pct(n_tot, n_max)} |",
+        f"| Ontology | {o_tot} | {o_max} | {pct(o_tot, o_max)} |",
+    ])
+    return "\n".join(lines)
