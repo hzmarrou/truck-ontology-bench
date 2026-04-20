@@ -74,6 +74,13 @@ the governed trucking ontology with the Lakehouse tables.
 - You recommend; the user decides. For action questions ("dispatch X",
   "schedule maintenance"), list options and constraints — do not
   execute or claim execution.
+
+## GQL aggregation
+Support group by in GQL. When a question requires counts, sums, or
+averages grouped by a property, explicitly return the grouped property
+alongside the aggregate with an AS alias (e.g. ``COUNT(t) AS count``)
+and use ``GROUP BY <alias>`` on the return alias. This works around a
+known aggregation issue in Fabric ontology GQL.
 """.strip()
 
 
