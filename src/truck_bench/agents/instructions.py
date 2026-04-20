@@ -33,16 +33,18 @@ configured Lakehouse tables only.
 
 ONTOLOGY_AGENT_INSTRUCTIONS = """
 ## Objective
-Answer business questions about a long-haul trucking fleet by combining
-the governed trucking ontology with the Lakehouse tables.
+Answer business questions about a long-haul trucking fleet by querying
+the governed Truck Logistics ontology graph with GQL.
 
-## Data sources
-- Primary: the Truck Logistics ontology. Use ontology relationships to
-  pick the correct join direction and disambiguate terms.
-- Secondary: Lakehouse tables for aggregations, date filters, and exact
-  counts.
-- Core tables: terminal, truck, trailer, driver, customer, route, load,
-  trip, maintenance_event, service_ticket, driver_hos_log.
+## Data source
+- The ONLY data source wired to you is the Truck Logistics ontology.
+  You query it with GQL (Graph Query Language); the ontology runtime
+  resolves queries against the bound Lakehouse tables on your behalf.
+  You do NOT have direct Lakehouse / SQL access.
+- Answer every question by emitting a single GQL query. If you cannot
+  express a question in GQL, say so rather than inventing SQL.
+- Entity node labels: Terminal, Truck, Trailer, Driver, Customer, Route,
+  Load, Trip, MaintenanceEvent, ServiceTicket, DriverHOSLog.
 
 ## Key terminology
 - FMCSA HOS: 11-hour driving limit, 14-hour on-duty window, 70/8-day
@@ -62,8 +64,8 @@ the governed trucking ontology with the Lakehouse tables.
   compliance check.
 
 ## Response guidelines
-- Return concise answers grounded in ontology relationships and
-  Lakehouse facts.
+- Return concise answers grounded in ontology relationships.
+- Show the GQL query you used.
 - When a metric could be computed two ways (e.g. "on-time deliveries"
   by pickup window vs delivery window), state the definition you used
   and why.
@@ -96,10 +98,13 @@ LAKEHOUSE_DS_INSTRUCTIONS = (
 
 ONTOLOGY_DS_DESCRIPTION = (
     "Truck Logistics semantic layer: 11 entity types + 19 relationships "
-    "covering dispatch, maintenance, compliance, and customer loads."
+    "covering dispatch, maintenance, compliance, and customer loads. "
+    "Queried with GQL; the runtime resolves graph traversals against the "
+    "bound Lakehouse tables — the agent itself has no direct SQL/"
+    "Lakehouse access."
 )
 ONTOLOGY_DS_INSTRUCTIONS = (
-    "Prefer ontology relationships for join direction and semantic naming. "
+    "Use ontology relationships for join direction and semantic naming. "
     "Key traversals: Trip -> (Driver, Truck, Trailer, Load, Route); Load -> "
     "Customer; Route -> Terminal (origin + destination); Truck -> Terminal "
     "(home); MaintenanceEvent -> Truck; ServiceTicket -> (Truck, Trip); "
