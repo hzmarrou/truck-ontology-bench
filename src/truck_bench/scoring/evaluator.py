@@ -77,40 +77,45 @@ def _extract_critic_verdict(response: AgentResponse) -> str | None:
 
 
 def score_response(response: AgentResponse, golden: GoldenAnswer) -> ScoreResult:
+    """Score one ``AgentResponse`` against its ``GoldenAnswer``.
+
+    The critic verdict (when available) is ONE independent dimension,
+    not a full override. Every dimension the golden declares an
+    expectation for is scored and contributes 1 point to ``max_score``
+    and ``total_score``.
+    """
     result = ScoreResult(scenario_id=response.scenario_id, agent_type=response.agent_type)
     notes: list[str] = []
 
     if response.error:
         notes.append(f"error: {response.error}")
 
-    # Preferred: use the critic's verdict when it is known.
+    # 0. Critic verdict as one of N dimensions
     verdict = _extract_critic_verdict(response)
     if verdict is not None:
-        result.max_score = 1
+        result.max_score += 1
         if verdict == "yes":
-            result.total_score = 1
-            result.metric_correct = True
-            result.signals_correct = True
-            result.notes = "critic: yes"
+            result.total_score += 1
+            notes.append("critic: yes")
         elif verdict == "unclear":
-            result.notes = "critic: unclear"
+            notes.append("critic: unclear")
         else:
-            result.notes = "critic: no"
-        return result
+            notes.append("critic: no")
 
-    # Fallback: signal-token match
+    # 1. Signal-token lexical coverage — independent dimension, always
+    # scored when the golden answer declares signals. This is LEXICAL
+    # COVERAGE only (did the agent mention the expected terms), not
+    # numeric correctness.
     if golden.ontology_signals:
         ok, _matched, missing = score_signals(response.answer, golden.ontology_signals)
-        result.max_score = 1
+        result.max_score += 1
         if ok:
             result.signals_correct = True
-            result.total_score = 1
-            result.notes = "signals: all matched"
+            result.total_score += 1
         else:
-            result.notes = f"signals missing: {missing}"
-        return result
+            notes.append(f"signals missing: {missing}")
 
-    result.notes = "no verdict or signals to score"
+    result.notes = "; ".join(notes) if notes else "no dimensions scored"
     return result
 
 

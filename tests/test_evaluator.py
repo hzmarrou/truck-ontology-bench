@@ -45,33 +45,52 @@ def test_score_signals_missing_flagged() -> None:
     assert missing == ["CDL"]
 
 
-def test_critic_verdict_yes_wins() -> None:
-    golden = GoldenAnswer(scenario_id="Q1", ontology_signals=["foo", "bar"])
-    response = AgentResponse(scenario_id="Q1", agent_type="o")
-    response.reasoning = "__critic_verdict__=yes\nsome text"
+def test_critic_yes_with_passing_signals_scores_both_dims() -> None:
+    """Critic verdict is now ONE dimension, not a full override. When the
+    agent both gets the critic's 'yes' AND the signals match, it scores
+    2/2, not 1/1."""
+    golden = GoldenAnswer(scenario_id="Q1", ontology_signals=["driver", "CDL"])
+    response = AgentResponse(scenario_id="Q1", agent_type="o",
+                             answer="The driver holds a valid CDL")
+    response.reasoning = f"__critic_verdict__=yes\n{response.answer}"
     r = score_response(response, golden)
-    assert r.total_score == 1 and r.max_score == 1
+    assert r.total_score == 2 and r.max_score == 2
     assert r.signals_correct is True
     assert "critic: yes" in r.notes
 
 
-def test_critic_verdict_no_scores_zero() -> None:
-    golden = GoldenAnswer(scenario_id="Q1", ontology_signals=["foo"])
-    response = AgentResponse(scenario_id="Q1", agent_type="n")
-    response.reasoning = "__critic_verdict__=no\nsome text"
+def test_critic_yes_with_missing_signals_splits_score() -> None:
+    """Critic says yes but answer does not mention required tokens.
+    Score 1/2: critic dimension passes, signal dimension fails."""
+    golden = GoldenAnswer(scenario_id="Q1", ontology_signals=["foo", "bar"])
+    response = AgentResponse(scenario_id="Q1", agent_type="o",
+                             answer="some text")
+    response.reasoning = "__critic_verdict__=yes\nsome text"
     r = score_response(response, golden)
-    assert r.total_score == 0 and r.max_score == 1
+    assert r.total_score == 1 and r.max_score == 2
+    assert r.signals_correct is False
+    assert "critic: yes" in r.notes
+
+
+def test_critic_no_with_passing_signals_splits_score() -> None:
+    """Critic says no but answer happens to mention the lexical tokens.
+    Score 1/2: critic dimension fails, signal dimension passes."""
+    golden = GoldenAnswer(scenario_id="Q1", ontology_signals=["driver"])
+    response = AgentResponse(scenario_id="Q1", agent_type="n",
+                             answer="driver")
+    response.reasoning = "__critic_verdict__=no\ndriver"
+    r = score_response(response, golden)
+    assert r.total_score == 1 and r.max_score == 2
     assert "critic: no" in r.notes
+    assert r.signals_correct is True
 
 
-def test_fallback_to_signal_match_when_no_verdict() -> None:
+def test_signals_only_scenario_still_scores() -> None:
+    """When no critic verdict is present, the signal dimension alone is
+    scored (1/1 if matched)."""
     golden = GoldenAnswer(scenario_id="Q1", ontology_signals=["driver", "CDL"])
-    response = AgentResponse(
-        scenario_id="Q1",
-        agent_type="o",
-        answer="The driver holds a valid CDL",
-    )
-    # No verdict marker in reasoning -> fallback to token match
+    response = AgentResponse(scenario_id="Q1", agent_type="o",
+                             answer="The driver holds a valid CDL")
     r = score_response(response, golden)
     assert r.total_score == 1 and r.max_score == 1
     assert r.signals_correct is True
