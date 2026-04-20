@@ -94,11 +94,23 @@ def build_ontology_config(
     entity_table_overrides: dict[str, str] | None = None,
     entity_seed_overrides: dict[str, str] | None = None,
     skip_entities: set[str] | None = None,
+    strict: bool = False,
 ) -> dict:
-    """Produce the Fabric-ready ontology config dict."""
+    """Produce the Fabric-ready ontology config dict.
+
+    ``strict=True`` raises RuntimeError if any relationship's endpoint
+    entity could not be resolved or any duplicate relationship name had
+    to be suppressed. The report is always attached to the returned
+    config under ``_mapping_report`` for post-hoc inspection.
+    """
     table_overrides = entity_table_overrides or {}
     seed_overrides = entity_seed_overrides or {}
     skip = skip_entities or set()
+
+    report = {
+        "unmapped_relationships": [],  # FK pointing at an entity we skip
+        "duplicate_relationships": [],  # name collision — only first kept
+    }
 
     # -- Entities ---------------------------------------------------------
     entities: list[dict] = []
@@ -137,12 +149,30 @@ def build_ontology_config(
 
     for src_entity, fk_field, tgt_entity in parsed.foreign_keys():
         if src_entity.name in skip or tgt_entity.name in skip:
+            report["unmapped_relationships"].append({
+                "source": src_entity.name,
+                "target": tgt_entity.name,
+                "fk": fk_field.name,
+                "reason": "endpoint entity is in skip_entities",
+            })
             continue
         if src_entity.name not in entity_by_name or tgt_entity.name not in entity_by_name:
+            report["unmapped_relationships"].append({
+                "source": src_entity.name,
+                "target": tgt_entity.name,
+                "fk": fk_field.name,
+                "reason": "endpoint entity not in parsed ontology",
+            })
             continue
 
         rel_name = _derive_relationship_name(src_entity, fk_field, tgt_entity)
         if rel_name in seen_names:
+            report["duplicate_relationships"].append({
+                "name": rel_name,
+                "source": src_entity.name,
+                "target": tgt_entity.name,
+                "fk": fk_field.name,
+            })
             continue
         seen_names.add(rel_name)
 
@@ -159,10 +189,19 @@ def build_ontology_config(
             "targetKeyColumns": fk_field.name,
         })
 
+    if strict and (report["unmapped_relationships"] or report["duplicate_relationships"]):
+        raise RuntimeError(
+            "build_ontology_config(strict=True) refused to produce a partial config:\n"
+            f"  unmapped_relationships = {len(report['unmapped_relationships'])}\n"
+            f"  duplicate_relationships = {len(report['duplicate_relationships'])}\n"
+            "See the _mapping_report field on the config for details."
+        )
+
     return {
         "name": display_name,
         "description": description,
         "tablePrefix": table_prefix,
         "entities": entities,
         "relationships": relationships,
+        "_mapping_report": report,
     }
