@@ -91,7 +91,8 @@
     "ontology_signals": [
       "customer",
       "in_transit"
-    ]
+    ],
+    "naked_agent_trap": "Joins Load to Customer but forgets the status='in_transit' filter."
   },
   {
     "scenario_id": "Q06",
@@ -111,7 +112,8 @@
     "ontology_signals": [
       "terminal",
       "truck"
-    ]
+    ],
+    "naked_agent_trap": "Counts trucks by status='en_route' instead of truck.home_terminal_id."
   },
   {
     "scenario_id": "Q07",
@@ -148,7 +150,8 @@
     "ontology_signals": [
       "critical",
       "service ticket"
-    ]
+    ],
+    "naked_agent_trap": "Forgets the reported_at window and returns all-time critical tickets."
   },
   {
     "scenario_id": "Q09",
@@ -168,7 +171,8 @@
     "ontology_signals": [
       "route",
       "trip"
-    ]
+    ],
+    "naked_agent_trap": "Counts all Trip rows instead of filtering status='completed'."
   },
   {
     "scenario_id": "Q10",
@@ -217,7 +221,8 @@
     "ontology_signals": [
       "driver",
       "distance"
-    ]
+    ],
+    "naked_agent_trap": "Sums route distance for every trip regardless of status."
   },
   {
     "scenario_id": "Q12",
@@ -275,7 +280,8 @@
     "ontology_signals": [
       "MPG",
       "miles"
-    ]
+    ],
+    "ambiguity_expected": true
   },
   {
     "scenario_id": "Q15",
@@ -297,7 +303,8 @@
       "maintenance",
       "cost",
       "make"
-    ]
+    ],
+    "naked_agent_trap": "Aggregates cost_usd by truck_id instead of joining to Truck.make."
   },
   {
     "scenario_id": "Q16",
