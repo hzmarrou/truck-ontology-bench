@@ -18,6 +18,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+# Windows cmd defaults to cp1252 which can't print Unicode characters that
+# appear in seed data (e.g. route names like "ATL→CHI"). Reconfigure stdout.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 from truck_bench.fabric_client import FabricConfig  # noqa: E402
 from truck_bench.fabric_client.graph_api import GraphClient  # noqa: E402
 
