@@ -70,6 +70,23 @@ catalogued.
 
 ## Graph refresh
 
+### `No graph model matching the ontology name`
+
+* **Symptom:** `scripts/04_refresh_and_validate.py` exits with "No
+  graph model matching the ontology name. Available models:" followed
+  by a list including one like
+  `Truck_Logistics_graph_<32-hex-id>`.
+* **Cause:** Fabric auto-provisions the graph model with a
+  `_graph_<id>` suffix appended to the ontology's display name. The
+  resolver here accepts either the exact name *or* the
+  `<name>_graph_<hex>` pattern; if your workspace has a graph model
+  that doesn't match either shape (e.g. someone renamed it), the
+  script won't find it.
+* **Fix:** pass `--graph-id <guid>` with the id from the error's
+  "Available models" list. Example:
+  `python scripts/04_refresh_and_validate.py --graph-id 227832f3-…`.
+* **Prevention:** don't rename the auto-provisioned graph model.
+
 ### Refresh returns `Cancelled` almost immediately
 
 * **Symptom:** `refresh status: Cancelled` with no

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import re
 import time
 from pathlib import Path
 
@@ -29,16 +30,39 @@ from truck_bench.fabric_client import FabricConfig  # noqa: E402
 from truck_bench.fabric_client.graph_api import GraphClient  # noqa: E402
 
 
+_GRAPH_SUFFIX_RE = re.compile(r"^_graph_[0-9a-f]+$", re.IGNORECASE)
+
+
 def _find_graph_for_ontology(gc: GraphClient, ontology_name: str) -> dict | None:
-    """Exact-displayName match on the graph model belonging to
-    ``ontology_name``. Multiple matches fail hard — the operator must
-    disambiguate with ``--graph-id``."""
-    matches = [g for g in gc.list_graph_models()
-               if g.get("displayName", "") == ontology_name]
+    """Resolve the graph model that belongs to ``ontology_name``.
+
+    Fabric auto-provisions the graph with one of two display-name
+    shapes:
+
+      * exact match: ``Truck_Logistics``
+      * suffixed:    ``Truck_Logistics_graph_<32-hex-id>``
+
+    We accept both and reject everything else. The substring /
+    startswith fuzzy match the earlier version used could pick up
+    unrelated models named ``Truck_Logistics_Other`` in a crowded
+    workspace; this regex keeps us precise. Multiple matches still
+    fail hard and require ``--graph-id``.
+    """
+    matches = []
+    for g in gc.list_graph_models():
+        name = g.get("displayName", "")
+        if name == ontology_name:
+            matches.append(g)
+            continue
+        if name.startswith(ontology_name):
+            tail = name[len(ontology_name):]
+            if _GRAPH_SUFFIX_RE.match(tail):
+                matches.append(g)
     if len(matches) > 1:
         raise RuntimeError(
-            f"Multiple graph models named {ontology_name!r}: "
-            f"{[g['id'] for g in matches]}. Pass --graph-id to pick one."
+            f"Multiple graph models matching {ontology_name!r}: "
+            f"{[(g.get('displayName'), g['id']) for g in matches]}. "
+            f"Pass --graph-id to pick one."
         )
     return matches[0] if matches else None
 
