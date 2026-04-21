@@ -142,22 +142,40 @@ def _make_client(agent_name: str) -> "FabricOpenAI":
         return FabricOpenAI(artifact_name=agent_name)
 
 
+_ACTIVE_RUN_STATES = {"queued", "in_progress", "requires_action", "cancelling"}
+
+
 def _call_once(agent_name: str, question: str, max_wait: int) -> str:
+    \"\"\"Ask one question; enforce an explicit wall-clock deadline.
+
+    ``create_and_poll`` has its own internal poll loop and ignores our
+    ``max_wait``. Poll manually so we can cancel and return a
+    ``<timeout>`` marker when the deadline is hit.
+    \"\"\"
     client = _make_client(agent_name)
     assistant = client.beta.assistants.create(model="not-used")
     thread = client.beta.threads.create()
     client.beta.threads.messages.create(
         thread_id=thread.id, role="user", content=question
     )
-    run = client.beta.threads.runs.create_and_poll(
+    run = client.beta.threads.runs.create(
         thread_id=thread.id, assistant_id=assistant.id
     )
+
+    deadline = time.time() + max_wait
+    while run.status in _ACTIVE_RUN_STATES:
+        if time.time() >= deadline:
+            try:
+                client.beta.threads.runs.cancel(thread_id=thread.id, run_id=run.id)
+            except Exception:
+                pass
+            return f"<timeout after {max_wait}s>"
+        time.sleep(2)
+        run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
     if run.status != "completed":
         return f"<run {run.status}>"
 
-    # Return only the LATEST assistant message. The Fabric SDK does not always
-    # hand back a pristine thread for each threads.create() call; picking by
-    # max(created_at) keeps us robust against thread reuse.
     msgs = client.beta.threads.messages.list(thread_id=thread.id)
     assistant_msgs = [m for m in msgs.data if m.role == "assistant"]
     if not assistant_msgs:
@@ -188,7 +206,7 @@ def ask_agent(agent_name: str, question: str,
 
 cells.append(md("""## 5. Scoring helper
 
-An answer is marked correct when every token in the scenario's `ontology_signals` list appears in the answer as a case-insensitive substring, after folding `_` / `-` / `/` / whitespace to a single space. An empty signal list evaluates to `False` (used by ambiguity scenarios where the expected response is prose, not a set of tokens)."""))
+An answer is marked correct when every token in the scenario's `ontology_signals` list appears in the answer as a case-insensitive substring, after folding `_` / `-` / `/` / whitespace to a single space. An empty signal list evaluates to `None` (N/A) — the downstream scorecard handles those scenarios via the critic / ambiguity / numeric-gold dimensions."""))
 cells.append(code("""import re
 
 
@@ -201,7 +219,7 @@ def _normalize(s: str) -> str:
 
 def score_answer(answer: str, signals: list[str]) -> dict:
     if not signals:
-        return {"correct": False, "matched": [], "missing": [], "signal_count": 0}
+        return {"correct": None, "matched": [], "missing": [], "signal_count": 0}
     answer_norm = _normalize(answer)
     matched: list[str] = []
     missing: list[str] = []
@@ -255,12 +273,27 @@ for i, scenario in enumerate(scenarios, 1):
     })
 
 df_results = pd.DataFrame(per_question)
+
+
+def _count_verdicts(col: str) -> tuple[int, int, int]:
+    vals = list(df_results[col])
+    correct = sum(1 for v in vals if v is True)
+    na = sum(1 for v in vals if v is None)
+    scored = len(vals) - na
+    return correct, scored, na
+
+
+naked_correct, naked_scored, naked_na = _count_verdicts("evaluation_judgement_naked")
+onto_correct, onto_scored, onto_na = _count_verdicts("evaluation_judgement_ontology")
+
 print(f"\\nCompleted {len(df_results)} scenarios.")
 print(
-    f"NakedAgent correct:    {int(df_results['evaluation_judgement_naked'].sum())}/{len(df_results)}"
+    f"NakedAgent correct:    {naked_correct}/{naked_scored} "
+    f"(+{naked_na} N/A)"
 )
 print(
-    f"OntologyAgent correct: {int(df_results['evaluation_judgement_ontology'].sum())}/{len(df_results)}"
+    f"OntologyAgent correct: {onto_correct}/{onto_scored} "
+    f"(+{onto_na} N/A)"
 )
 """))
 
@@ -278,12 +311,16 @@ df_results[display_cols]
 cells.append(md("## 8. Summary"))
 cells.append(code("""def _summary(df: pd.DataFrame, suffix: str) -> dict:
     col = f"evaluation_judgement_{suffix}"
-    correct = int(df[col].sum())
-    total = len(df)
+    vals = list(df[col])
+    correct = sum(1 for v in vals if v is True)
+    na = sum(1 for v in vals if v is None)
+    scored = len(vals) - na
     return {
         "correctCount": correct,
-        "totalQuestions": total,
-        "accuracyPct": round(100 * correct / total, 1) if total else 0.0,
+        "scoredQuestions": scored,
+        "naQuestions": na,
+        "totalQuestions": len(vals),
+        "accuracyPct": round(100 * correct / scored, 1) if scored else 0.0,
     }
 
 naked_summary = _summary(df_results, "naked")
@@ -299,13 +336,23 @@ cells.append(md("""## 9. Save the JSON report
 
 Produces `Files/truck/_agent_comparison.json` on the attached lakehouse. Download it to your local `truck-ontology-bench/outputs/_agent_comparison.json` and run `python scripts/06_score.py` for the markdown scorecard."""))
 cells.append(code("""import os
+import hashlib
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def _canonical_sha(payload: list[dict]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+scenarios_sha256 = _canonical_sha(scenarios)
 
 report = {
     "runAtUtc": datetime.utcnow().isoformat() + "Z",
     "stage": DATA_AGENT_STAGE,
     "scoringMethod": "ontology_signals token match (all tokens must appear, case + separator insensitive)",
+    "scenariosSha256": scenarios_sha256,
+    "scenariosPayload": scenarios,
     "agents": {
         "naked": {"name": NAKED_AGENT_NAME, **naked_summary},
         "ontology": {"name": ONTOLOGY_AGENT_NAME, **ontology_summary},
@@ -318,8 +365,9 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
 
 print(f"Saved: {OUTPUT_FILE}")
 print(f"Rows:  {len(report['perQuestion'])}")
-print(f"Naked    {naked_summary['correctCount']}/{naked_summary['totalQuestions']} ({naked_summary['accuracyPct']}%)")
-print(f"Ontology {ontology_summary['correctCount']}/{ontology_summary['totalQuestions']} ({ontology_summary['accuracyPct']}%)")
+print(f"Scenarios sha256: {scenarios_sha256}")
+print(f"Naked    {naked_summary['correctCount']}/{naked_summary['scoredQuestions']} ({naked_summary['accuracyPct']}%)")
+print(f"Ontology {ontology_summary['correctCount']}/{ontology_summary['scoredQuestions']} ({ontology_summary['accuracyPct']}%)")
 """))
 
 cells.append(md("""## 10. What to look for
