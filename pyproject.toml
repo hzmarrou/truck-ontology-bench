@@ -5,11 +5,26 @@ description = "Long-haul trucking ontology benchmark in Microsoft Fabric"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [{ name = "hzmarrou" }]
+keywords = [
+    "fabric",
+    "microsoft-fabric",
+    "ontology",
+    "knowledge-graph",
+    "data-agent",
+    "gql",
+    "benchmark",
+]
 dependencies = [
     "requests>=2.31",
     "python-dotenv>=1.0",
     "tabulate>=0.9",
 ]
+
+[project.urls]
+Homepage = "https://github.com/hzmarrou/truck-ontology-bench"
+Issues = "https://github.com/hzmarrou/truck-ontology-bench/issues"
+Documentation = "https://github.com/hzmarrou/truck-ontology-bench/tree/main/docs"
 
 [project.optional-dependencies]
 dev = [
