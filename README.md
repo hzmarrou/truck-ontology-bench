@@ -6,6 +6,34 @@ Fabric Data Agents — one schema-only (`NakedAgent`) and one
 ontology-grounded (`OntologyAgent`) — and scores them side-by-side on a
 curated scenario benchmark.
 
+## What is Fabric IQ?
+
+Fabric IQ is a workload inside Microsoft Fabric that adds a **semantic
+layer on top of OneLake data**. You declare, once, the *meaning* of your
+domain — the entities that exist, how they relate, how each is
+uniquely identified — and multiple query engines (Spark SQL, graph via
+GQL) can honour that meaning without reverse-engineering it from column
+names.
+
+Concretely, this repo exercises three IQ building blocks:
+
+- **Ontology** — the declarative spec of entities, properties,
+  relationships, and entity keys. Authored in Markdown
+  (`input/schema/ontology.md`), pushed to Fabric via REST.
+- **Graph model** — the instance layer that Fabric auto-projects from
+  the ontology. Populated by explicitly triggering a **refresh**
+  against the bound Lakehouse tables. Queryable in GQL.
+- **Data Agent** — an AI agent, exposed via a `FabricOpenAI` client,
+  configured against one or more data sources (the Lakehouse tables
+  for `NakedAgent`, the ontology for `OntologyAgent`). It answers
+  natural-language questions by emitting a query in the right language
+  and running it.
+
+If any of the terms above are unfamiliar, read
+[`docs/01-fabric-iq-primer.md`](docs/01-fabric-iq-primer.md) before
+continuing. The primer is self-contained and assumes only Fabric
+basics (Lakehouse, Spark, capacity).
+
 ## What you get
 
 - A Markdown-authored ontology (11 entities: Terminal, Truck, Trailer,
@@ -58,11 +86,15 @@ workspace per evaluation keeps the blast radius minimal.
 ## Setup
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/hzmarrou/truck-ontology-bench
 cd truck-ontology-bench
 uv venv && uv pip install -e .[dev]
 
 cp .env.example .env   # then edit .env with your five values
+
+# Sanity check — no Fabric credentials needed, ~2 seconds.
+# Must be green before you run the pipeline.
+pytest -q
 ```
 
 ## Pipeline
@@ -106,6 +138,26 @@ agent directly, scores answers with a deterministic token match against
 each scenario's `ontology_signals`, and writes
 `Files/truck/_agent_comparison.json` to the lakehouse.
 
+### Query the graph directly with GQL
+
+You can also query the graph model without going through an agent. The
+11 competency queries under `gql-queries/` are a good starting point.
+For example, `gql-queries/cq02.gql` asks how many trucks call each
+terminal home:
+
+```gql
+MATCH (t:Truck)-[:truck_home_terminal]->(term:Terminal)
+RETURN term.name AS terminal_name, COUNT(t) AS truck_count
+GROUP BY terminal_name
+ORDER BY truck_count DESC
+```
+
+`scripts/04_refresh_and_validate.py` runs every `cq*.gql` against the
+graph model and records pass/fail in `outputs/_validation.json`. See
+[`gql-queries/README.md`](gql-queries/README.md) for the full list
+and [`docs/04-schema-reference.md`](docs/04-schema-reference.md#gql-query-file-format)
+for the file format.
+
 ### Score the comparison
 
 Download `_agent_comparison.json` from the lakehouse to
@@ -115,10 +167,22 @@ Download `_agent_comparison.json` from the lakehouse to
 python scripts/06_score.py
 ```
 
-Produces `outputs/scorecard.md` and `outputs/scorecard.json`.
-`OntologyAgent` should clearly beat `NakedAgent` on multi-hop
-traversals, governed-metric scenarios, negation (Q12), and
-ambiguity / guardrail cases (Q16, Q17, Q18).
+Produces `outputs/scorecard.md` and `outputs/scorecard.json`. The
+scorer grades each answer along up to seven independent dimensions
+(critic verdict, table coverage, relationship coverage, ambiguity
+detection, guardrail respect, signal-token coverage, numeric-gold
+precision) — see [`docs/02-repo-tour.md`](docs/02-repo-tour.md#scoring-architecture)
+for detail.
+
+### What the benchmark actually shows
+
+On the 18 questions in this set, against the current Fabric preview,
+**the two agents are roughly tied on aggregate accuracy** and differ
+only on specific, identifiable cases. Read
+[`docs/03-walkthrough.md`](docs/03-walkthrough.md#what-works-and-what-does-not)
+for the honest analysis — where the ontology helps, where a GQL
+platform gap makes it hurt, and what the benchmark does *not*
+measure.
 
 ## Repository layout
 
@@ -148,22 +212,70 @@ truck-ontology-bench/
 
 ## Troubleshooting
 
-- **403 on the first `POST /ontologies`** — the service principal is not
-  Admin on the target workspace. Fix it in *Workspace settings → Manage
-  access*.
+- **403 on the first `POST /ontologies`** — the service principal is
+  not Admin on the target workspace. Fix it in *Workspace settings →
+  Manage access*.
+- **409 Conflict on `create_ontology`** — Fabric's displayName
+  reservation lags deletion. The script retries up to 12× with backoff;
+  wait it out, or wait 2 minutes and rerun.
+- **Graph is empty after setup** — at least one entity is missing a
+  `(PK)` annotation, so bindings push fine but the graph materialises
+  zero nodes. Check `input/schema/ontology.md`.
 - **Graph refresh stuck on `Cancelled`** — Fabric auto-cancels
-  overlapping refresh jobs. Wait ~60 s and retry a single clean refresh.
-  If the cancellation persists, click "Refresh now" in the Fabric UI.
-- **Notebook `evaluate_data_agent` is not used here** — the current
-  notebook uses `FabricOpenAI` directly. If you prefer the canonical
-  evaluation path, it is documented at
-  https://learn.microsoft.com/en-us/fabric/data-science/evaluate-data-agent.
-- **`KeyError: 'actual_answer'`** — the notebook here does not use the
-  `evaluate_data_agent` critic prompt, so the SDK's `{actual_answer}`
-  placeholder constraint does not apply. If you bolt on
-  `evaluate_data_agent`, remember the critic prompt may only reference
-  `{query}` and `{expected_answer}`.
+  overlapping refresh jobs. Wait ~60 s and retry; if it persists, use
+  the Fabric UI "Refresh now" and rerun with `--skip-refresh`.
+- **`Jinja2` template error in the notebook** — the Fabric runtime
+  ships a newer Jinja2 than `fabric-data-agent-sdk` supports. The
+  notebook's first cell pins `Jinja2==3.1.6`; make sure it ran.
+- **`OpenAI.__init__() got unexpected keyword argument 'data_agent_stage'`** —
+  newer SDKs dropped the kwarg. The notebook's `_make_client()` already
+  tries with and without; if both fail, pin or upgrade the SDK version.
+- **`evaluate_data_agent` with `CANNOT_MERGE_TYPE`** — bug in the SDK's
+  Spark writer on mixed-row-shape responses. This repo bypasses it and
+  calls `FabricOpenAI` directly for exactly that reason.
+
+Every failure mode this repo has ever hit is catalogued in
+[`docs/05-troubleshooting.md`](docs/05-troubleshooting.md) with
+symptom → cause → fix → prevention.
+
+## What works well / what's still rough
+
+**Works well on Fabric today:** declaring ontologies via REST, the
+ontology-to-Lakehouse sync, running GQL multi-hop traversals on the
+graph, provisioning Data Agents, and the two-agent comparison pattern.
+50 unit tests run offline in ≈ 2 seconds; no network.
+
+**Still rough:** GQL has no clean path for `NOT EXISTS` / anti-joins
+or `CASE WHEN`-inside-`SUM()` conditional aggregation, so the
+OntologyAgent refuses those questions even when a graph engine would
+run them fine. Graph refresh is auto-cancelled when jobs overlap, so
+retry logic is required. SDK drift (`data_agent_stage` kwarg, Jinja2
+version) means both pins are baked into the notebook. None of these
+are secret — they are documented in
+[`docs/05-troubleshooting.md`](docs/05-troubleshooting.md) and called
+out in [`docs/01-fabric-iq-primer.md`](docs/01-fabric-iq-primer.md#gql--the-graph-query-language).
+
+## Documentation
+
+- [`docs/README.md`](docs/README.md) — reading order + nav.
+- [`docs/01-fabric-iq-primer.md`](docs/01-fabric-iq-primer.md) —
+  concepts, no Fabric IQ background assumed.
+- [`docs/02-repo-tour.md`](docs/02-repo-tour.md) — architecture +
+  code map.
+- [`docs/03-walkthrough.md`](docs/03-walkthrough.md) — first-run
+  playbook against a real Fabric workspace.
+- [`docs/04-schema-reference.md`](docs/04-schema-reference.md) —
+  scenario JSON, ontology Markdown, and GQL file formats.
+- [`docs/05-troubleshooting.md`](docs/05-troubleshooting.md) —
+  full runbook.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for dev setup, test commands,
+and PR conventions. Changes to the scenario bank, the ontology
+Markdown, or the GQL queries should come with a corresponding update
+in `docs/`.
 
 ## License
 
-MIT
+See [`LICENSE`](LICENSE). MIT.
