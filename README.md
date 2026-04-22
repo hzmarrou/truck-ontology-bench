@@ -245,15 +245,32 @@ ontology-to-Lakehouse sync, running GQL multi-hop traversals on the
 graph, provisioning Data Agents, and the two-agent comparison pattern.
 50 unit tests run offline in ≈ 2 seconds; no network.
 
-**Still rough:** GQL has no clean path for `NOT EXISTS` / anti-joins
-or `CASE WHEN`-inside-`SUM()` conditional aggregation, so the
-OntologyAgent refuses those questions even when a graph engine would
-run them fine. Graph refresh is auto-cancelled when jobs overlap, so
-retry logic is required. SDK drift (`data_agent_stage` kwarg, Jinja2
-version) means both pins are baked into the notebook. None of these
-are secret — they are documented in
+**Still rough — Fabric GQL engine (not agent quality):** hand-written
+queries for substring matching (`LIKE`), conditional aggregation
+(`CASE WHEN … END` inside `SUM()`), and anti-joins
+(`WHERE NOT EXISTS { ... }`) are rejected directly by `executeQuery`
+as `syntax error or access rule violation`. These patterns are
+specified in ISO GQL 2024 and work in Cypher, TigerGraph, Memgraph,
+and ArangoDB; Fabric's dialect is a strict subset today. The
+OntologyAgent's refusals on Q07 / Q12 / Q15 are it correctly
+recognising that the engine below can't run those patterns — it's not
+an agent bug.
+
+**Still rough — graph-refresh control plane:** the refresh LRO
+status endpoint can stay `InProgress` for 30+ minutes even after the
+refresh has actually finished (observed on F16 with ~960 rows). The
+data materialises correctly; only the status never transitions. Run
+`python scripts/04_refresh_and_validate.py --skip-refresh` and check
+`cq01.gql`'s node count to confirm data is present.
+
+**SDK drift:** `data_agent_stage` kwarg, `Jinja2` version pin, the
+`evaluate_data_agent` Spark-write bug — all baked into the notebook
+as workarounds.
+
+None of these are secret — every item is documented in
 [`docs/05-troubleshooting.md`](docs/05-troubleshooting.md) and called
-out in [`docs/01-fabric-iq-primer.md`](docs/01-fabric-iq-primer.md#gql--the-graph-query-language).
+out with the maturity take in
+[`docs/01-fabric-iq-primer.md`](docs/01-fabric-iq-primer.md#maturity--read-before-betting-a-project-on-this).
 
 ## Documentation
 

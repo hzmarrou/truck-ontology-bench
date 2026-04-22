@@ -252,19 +252,46 @@ repo) is:
   (Q04–Q11), the ambiguity-friendly phrasing cases, and the
   one-relationship graph questions.
 
-**Genuinely rough in GQL today:**
+**Genuinely rough — Fabric GQL engine limitations (not agent quality):**
 
-* `NOT EXISTS` / anti-join (Q12 — "trucks that never had a
-  maintenance event"). The OntologyAgent typically refuses with
-  "limitations comparing or excluding sets". SQL handles it fine.
-* Conditional aggregation + division (Q15 — "maintenance spend per
-  10k miles by truck make"). Needs `CASE WHEN … THEN …` inside
-  `SUM()` + a divide; GQL doesn't express it cleanly, so the
-  OntologyAgent refuses. SQL handles it fine.
-* Numeric precision on governed metrics (Q13 — on-time rate). Both
-  agents frequently return fractions (0.0, 1.0) instead of the
-  expected percentage. The numeric-gold scorer dimension catches
-  this.
+These are **engine-level rejections**. Running `cq08.gql`, `cq10.gql`,
+and `cq11.gql` by hand via `scripts/04_refresh_and_validate.py`
+returns `syntax error or access rule violation` directly from
+`executeQuery`. The OntologyAgent's refusals on Q12 / Q15 / Q07 are
+it correctly recognising that the engine below cannot execute the
+pattern. This is a platform gap, not an agent authoring gap.
+
+* **Substring / pattern match** (`LIKE '%H%'` — Q07, cq08). Needed
+  for "loads requiring the hazmat 'H' endorsement". Fabric GQL does
+  not accept `LIKE` today. SQL handles it trivially.
+* **Anti-join** (`WHERE NOT EXISTS { MATCH ... }` — Q12, cq11).
+  Needed for "trucks that have never had a maintenance event". Not
+  accepted in Fabric GQL. SQL handles it with `LEFT JOIN ... IS
+  NULL`.
+* **Conditional aggregation** (`CASE WHEN … THEN … END` inside
+  `SUM()` — Q15, cq10). Needed for "maintenance spend per 10k miles
+  by truck make" and for on-time rates. Not accepted in Fabric GQL.
+  SQL handles it directly.
+
+All three patterns are specified in ISO GQL 2024 and supported by
+Neo4j Cypher, TigerGraph, Memgraph, and ArangoDB. The gap is specific
+to Fabric's preview dialect.
+
+**Separate issue — refresh LRO control plane:**
+
+The graph refresh REST endpoint often leaves its LRO status at
+`InProgress` long after the actual refresh has finished — observed
+30+ minutes on F16 with only ~960 rows. The data is correctly
+materialised (run `scripts/04_refresh_and_validate.py --skip-refresh`
+and check `cq01.gql`'s node count to confirm). This breaks any
+automation that waits for `status=Completed`.
+
+**Numeric precision — a separate weakness:**
+
+* On Q13 (on-time rate) both agents often return fractions
+  (`0.0`, `1.0`) instead of the expected percentage. The numeric-gold
+  scorer dimension catches this; without it the lexical scorer would
+  rate both agents correct.
 
 **Where the OntologyAgent is genuinely better:**
 

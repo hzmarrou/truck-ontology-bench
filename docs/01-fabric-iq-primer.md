@@ -103,14 +103,26 @@ shorter:
   Chicago *in either direction*?" The graph expresses the symmetry
   naturally; SQL needs to enumerate both orderings.
 
-Where GQL is **still weak today** (as of the Fabric preview at the
-time of this repo):
+Where Fabric's GQL dialect is **still incomplete today** — these are
+**engine-level rejections** returned from the `executeQuery` REST
+endpoint as `syntax error or access rule violation`, not agent
+refusals. Hand-writing the query yourself does not help, because the
+engine never accepts it:
 
-* `NOT EXISTS` / anti-join patterns (agent-authored queries refuse
-  outright — see scenario Q12).
-* Conditional aggregation — `CASE WHEN … THEN …` inside `SUM()` for
-  things like "percentage of trips that arrived on time" (scenario
-  Q15).
+* **Substring / pattern match on scalars** (`LIKE '%H%'`). Standard in
+  SQL, Cypher, and ISO GQL 2024. Rejected in Fabric's dialect today.
+  See `gql-queries/cq08.gql`.
+* **Conditional aggregation** — `CASE WHEN … THEN … END` inside
+  `SUM()`, needed for "percentage of trips that arrived on time"
+  patterns. Rejected. See `gql-queries/cq10.gql` and scenario Q15.
+* **Anti-joins** — `WHERE NOT EXISTS { MATCH (...) }`, needed for
+  "entities that never …" patterns. Rejected. See
+  `gql-queries/cq11.gql` and scenario Q12.
+
+All three patterns are specified in ISO/IEC 39075:2024 and are
+supported by Neo4j Cypher, TigerGraph GSQL, Memgraph, ArangoDB. The
+gap is specific to Fabric's preview implementation, not to graph
+query languages as a category.
 
 Those limitations are the headline content of
 [`03-walkthrough.md`](03-walkthrough.md#what-works-and-what-does-not)
@@ -163,7 +175,7 @@ The benchmark in this repo is a side-by-side comparison:
 | Agent | Sees | Queries | Strengths (on this set) | Weaknesses |
 |---|---|---|---|---|
 | NakedAgent | 11 raw Lakehouse tables with FK columns | Spark SQL | Works; easy mental model | Silently picks one interpretation of ambiguous questions; no semantic vocabulary; wrong joins on multi-hop |
-| OntologyAgent | 11 entities + 19 relationships on the graph | GQL | Better multi-hop + clarification behaviour | Refuses on anti-joins and conditional aggregations (GQL gap, not agent quality) |
+| OntologyAgent | 11 entities + 19 relationships on the graph | GQL | Better multi-hop + clarification behaviour | Refuses on anti-joins, conditional aggregation, and substring LIKE — the Fabric GQL **engine** rejects those patterns; the agent is correctly recognising that |
 
 The scenarios in `scenarios/truck_scenarios.json` are chosen so the
 difference shows up:
@@ -180,6 +192,53 @@ The results the current Fabric preview produces on this set are
 **honest, not flattering to either side**; read
 [`03-walkthrough.md`](03-walkthrough.md#what-works-and-what-does-not)
 for the actual scorecard analysis rather than the marketing claims.
+
+## Maturity — read before betting a project on this
+
+Fabric IQ is a public preview, and the maturity of its components is
+uneven. A calibrated read based on what this repo's runs actually
+produce today:
+
+**What is credibly ready**
+
+* Declarative ontology modelling + REST API for CRUD.
+* Ontology → Lakehouse binding + automatic graph materialisation.
+* Basic GQL: `MATCH`, `WHERE`, `RETURN`, property filters, multi-hop
+  traversals, `GROUP BY`, `COUNT`, `SUM`, `DISTINCT`, `ORDER BY`,
+  `LIMIT`.
+* Data Agent provisioning and the two-agent comparison pattern.
+
+**What is still not production-grade**
+
+* The **GQL query engine** is a strict subset of ISO GQL 2024.
+  Substring matching, conditional aggregation, and anti-joins are not
+  supported — not uncommon patterns; everyday in real analyst work.
+* **Graph refresh control plane** has a known bug where the LRO
+  status stays `InProgress` after the refresh has actually finished.
+  Automation that polls the status endpoint can time out while the
+  data is, in fact, already there.
+* **Refresh latency does not appear to scale with Fabric capacity.**
+  Observed 30+ minutes on F16 for ~960 rows while `InProgress` never
+  cleared. The data materialised correctly; the status endpoint did
+  not.
+* **SDK drift.** `data_agent_stage` kwarg, `Jinja2` version pin, the
+  `evaluate_data_agent` Spark-write bug — all workarounds this repo
+  carries.
+
+**Calibrated use-case gradient**
+
+| Use case | Recommendation |
+|---|---|
+| Learning, prototyping, internal demo | Fine. Go. This repo is the on-ramp. |
+| Benchmarking / calibrating expectations before a bigger bet | Exactly what this repo is for. |
+| Production-governed metrics, analyst-grade ad-hoc queries | **Not yet.** The GQL gaps above bite everyday questions. Revisit at GA. |
+| Automated CI/CD gated on graph refresh | **Not yet.** The LRO status bug breaks automation even when the data is fine. |
+
+The ontology + bindings architecture is a credible future direction.
+The GQL executor and refresh control plane are behind what the
+architecture deserves. Both will likely improve before GA; **the
+honest thing to do is track them as they land, not assume they're
+there**.
 
 ## Where to go next
 

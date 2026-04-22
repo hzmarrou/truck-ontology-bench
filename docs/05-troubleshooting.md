@@ -110,6 +110,26 @@ catalogued.
 * **Fix:** increase `--max-wait-seconds` (if the CLI exposes it) or
   fall back to the UI.
 
+### Refresh LRO stays `InProgress` even though the graph is fully loaded
+
+* **Symptom:** Repeated `[Graph refresh] still InProgress (t+NNs)`
+  heartbeats for the whole 30-minute window, then `TimeoutError`.
+  But if you rerun `04_refresh_and_validate.py --skip-refresh`, the
+  competency queries succeed and `cq01.gql` reports the expected
+  node count (960 for this repo).
+* **Cause:** Known Fabric preview bug on the graph-refresh control
+  plane. The refresh job itself completes and materialises nodes +
+  edges correctly, but the job-instance status endpoint never
+  transitions to `Completed` — it stays `InProgress` until the client
+  times out on its own.
+* **Fix:** after seeing the `TimeoutError`, run
+  `python scripts/04_refresh_and_validate.py --skip-refresh`. If
+  `cq01.gql` shows the expected node count, your data is fine and you
+  can continue with `scripts/05_setup_agents.py` and the notebook.
+* **Prevention:** none on your side. Automation that waits for
+  `status=Completed` will get stuck; use a timeout + node-count check
+  as the success signal instead.
+
 ## Data Agents
 
 ### `ValueError: Lakehouse <id> not found in workspace`
