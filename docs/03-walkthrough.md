@@ -159,6 +159,30 @@ retries once. If both attempts are cancelled, use the Fabric UI's
 `--skip-refresh`. This is an acknowledged platform quirk; see
 [`05-troubleshooting.md`](05-troubleshooting.md#graph-refresh-auto-cancelled).
 
+### If the refresh hits `TimeoutError` after 30 minutes
+
+This is a different failure from `Cancelled`. The heartbeat
+prints `still InProgress` for the whole 30-minute window, then the
+script raises `TimeoutError: Graph refresh exceeded 1800s timeout`.
+Known Fabric preview bug: the refresh job actually finishes and
+materialises the graph, but its status endpoint never transitions to
+`Completed`.
+
+**Recovery — one command:**
+
+```bash
+python scripts/04_refresh_and_validate.py --skip-refresh
+```
+
+If `cq01.gql` reports ≈ 960 nodes, the data is fine and you can
+continue to Stage 05. If it reports 0 nodes, the refresh really did
+fail; click `Refresh now` in the Fabric UI and rerun with
+`--skip-refresh` again once the UI says the refresh completed.
+
+**Do not pass `--skip-refresh` on the first run.** A fresh workspace
+needs the initial refresh to actually do its work; skipping it on day
+1 leaves you with an empty graph and no signal about why.
+
 **Verify in the Fabric UI:**
 
 * Open the graph model; paste any `gql-queries/cq*.gql` contents into
